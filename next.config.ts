@@ -8,7 +8,11 @@ const nextConfig: NextConfig = {
 module.exports = {
     experimental: {
         appDir: true,
-        output: 'export'
+        output: 'export',
+        trailingSlash: true, // 解决路由路径问题
+        images: {
+            unoptimized: true // 禁用图片优化
+        }
     },
 }
 export default nextConfig;
