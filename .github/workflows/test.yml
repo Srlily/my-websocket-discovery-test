@@ -14,10 +14,6 @@ jobs:
       pages: write
       id-token: write
 
-    strategy:
-      matrix:
-        node-version: [20.x]
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,7 +21,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 20.x
           cache: npm
 
       - name: Install dependencies
@@ -37,20 +33,20 @@ jobs:
           NODE_ENV: production
 
       - name: Upload Pages Artifact
-        uses: actions/upload-pages-artifact@v2
+        uses: actions/upload-pages-artifact@v2  # 唯一使用的上传操作
         with:
           path: ./out
 
   deploy:
     needs: build
+    runs-on: ubuntu-latest
     permissions:
       pages: write
       id-token: write
-    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v2  # 使用专用部署操作
