@@ -41,4 +41,4 @@ jobs:
         if: github.ref == 'refs/heads/master'  # 仅在 master 分支触发
         uses: actions/deploy-pages@v1
         with:
-          publish-dir: .next  # Next.js 的默认构建输出目录
+          publish-dir: .next
