@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
 module.exports = {
     experimental: {
         appDir: true,
+        output: 'export'
     },
-    // 其他配置...
 }
 export default nextConfig;

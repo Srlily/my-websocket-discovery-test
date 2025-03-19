@@ -10,7 +10,9 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 允许部署到 GitHub Pages
+      contents: write
+      pages: write  # 需要添加 pages 权限
+      id-token: write  # 需要添加 OIDC 权限
 
     strategy:
       matrix:
@@ -37,8 +39,22 @@ jobs:
         env:
           NODE_ENV: production
 
-      - name: Deploy to GitHub Pages  # 部署步骤
-        if: github.ref == 'refs/heads/master'  # 仅在 master 分支触发
-        uses: actions/deploy-pages@v1
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2  # 使用 v2 版本
         with:
-          publish-dir: .next
+          path: ./out
+
+  deploy:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v2  # 添加部署步骤
