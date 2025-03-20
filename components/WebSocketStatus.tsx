@@ -1,4 +1,3 @@
-// components/WebSocketStatus.tsx
 import React from 'react';
 
 interface WebSocketStatusProps {

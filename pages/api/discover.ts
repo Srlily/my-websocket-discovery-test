@@ -3,25 +3,35 @@ import { Bonjour } from 'bonjour-service';
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
     const instance = new Bonjour();
-    const timeout = 10000;
+    const timeout = 10000; // 10秒超时
     const uniqueIPs = new Set<string>();
-    let browser: ReturnType<typeof instance.find>; // 显式声明类型
+    let browser: ReturnType<typeof instance.find>;
+
+    let resolved = false; // 标记是否已响应
 
     const cleanup = () => {
-        browser?.stop();  // 安全调用
+        browser?.stop();
         instance.destroy();
-        clearTimeout(timer);
     };
 
-    const timer = setTimeout(() => {
-        console.log(`[mDNS] 扫描完成，共发现 ${uniqueIPs.size} 个唯一IP`);
+    // 立即返回发现的IP（即使超时前）
+    const respond = () => {
+        if (resolved) return;
+        resolved = true;
         cleanup();
         res.status(200).json({ ips: Array.from(uniqueIPs) });
+    };
+
+    // 设置超时
+    const timer = setTimeout(() => {
+        if (!resolved && uniqueIPs.size === 0) {
+            respond(); // 超时后返回空结果
+        }
     }, timeout);
 
     try {
         browser = instance.find({
-            type: 'ETS2LA-WS'
+            type: 'ETS2LA-WS',
         });
 
         browser.on('up', (service) => {
@@ -29,20 +39,24 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
                 name: service.name,
                 type: service.type,
                 host: service.host,
-                addresses: service.addresses
+                addresses: service.addresses,
             });
+
             const addresses = [
                 ...(service.addresses || []),
                 service.host,
-                ...(service.referer?.address ? [service.referer.address] : [])
+                ...(service.referer?.address ? [service.referer.address] : []),
             ];
 
-            addresses.forEach(addr => {
-                if (typeof addr === 'string') {
-                    const cleanAddr = addr.trim();
-                    if (cleanAddr) uniqueIPs.add(cleanAddr);
-                }
+            addresses.forEach((addr) => {
+                const cleanAddr = (addr as string).trim();
+                if (cleanAddr) uniqueIPs.add(cleanAddr);
             });
+
+            // 发现第一个IP后立即返回
+            if (uniqueIPs.size > 0 && !resolved) {
+                respond();
+            }
         });
 
         browser.on('error', (err) => {
