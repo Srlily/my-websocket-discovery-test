@@ -19,7 +19,7 @@ export default function NetworkTester() {
   const [receivedMessages, setReceivedMessages] = useState<string[]>([]);
   const [localIP, setLocalIP] = useState<string | null>(null);
   const [serverIPs, setServerIPs] = useState<string[]>([]);
-  const [matchingIPs, setMatchingIPs] = useState<string[]>([]);
+  const [matchingIPs] = useState<string[]>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const [isLocal, setIsLocal] = useState<boolean | null>(null);

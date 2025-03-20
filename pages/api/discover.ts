@@ -1,7 +1,7 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { Bonjour } from 'bonjour-service';
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
+export default function handler(res: NextApiResponse) {
     const instance = new Bonjour();
     const timeout = 10000; // 10秒超时
     const uniqueIPs = new Set<string>();
@@ -18,6 +18,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     const respond = () => {
         if (resolved) return;
         resolved = true;
+        clearTimeout(timer); // 提前清除
         cleanup();
         res.status(200).json({ ips: Array.from(uniqueIPs) });
     };
