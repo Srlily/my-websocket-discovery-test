@@ -30,11 +30,10 @@ export default function NetworkTester() {
   const [discoveredServicesCount, setDiscoveredServicesCount] = useState(0);
 
   // 网络辅助函数
-  const isSameSubnet = (ip1: string, ip2: string): boolean => {
+  const isSameSubnet = useCallback((ip1: string, ip2: string): boolean => {
     const subnet = (ip: string) => ip.split('.').slice(0, 3).join('.');
     return subnet(ip1) === subnet(ip2);
-  };
-
+  }, []);
   // 获取远程服务器列表
   const getRemoteServers = useCallback(async (): Promise<{ user_id: string; ip: string }[]> => {
     try {
@@ -48,9 +47,9 @@ export default function NetworkTester() {
   }, []);
 
   // 判断是否为内网IP
-  const isLocalIP = (ip: string): boolean => {
+  const isLocalIP = useCallback((ip: string): boolean => {
     return ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.');
-  };
+  }, []);
 
   // 初始化服务发现
   useEffect(() => {
@@ -90,20 +89,22 @@ export default function NetworkTester() {
   // 自动选择最优IP
   useEffect(() => {
     if (serverIPs.length > 0 && localIP) {
-      const validIPs = serverIPs.filter(isValidIP);
+      const validIPs = serverIPs.filter(isValidIP); // 使用外部导入的 isValidIP
       const publicIP = validIPs.find(ip => !isLocalIP(ip));
       const localIPs = validIPs.filter(ip => isSameSubnet(ip, localIP));
 
+      // 优先选择本地IP → 公网IP → 其他有效IP
       const newDiscoveredIp =
+          (localIPs.length > 0 ? localIPs[0] : null) ||
           publicIP ||
-          (localIPs.length > 0 ? localIPs[0] : validIPs[0]);
+          validIPs[0];
 
       if (newDiscoveredIp && newDiscoveredIp !== discoveredIp) {
         setDiscoveredIp(newDiscoveredIp);
         addLog('success', `自动选择服务IP: ${newDiscoveredIp}`);
       }
     }
-  }, [serverIPs, localIP, discoveredIp]);
+  }, [serverIPs, localIP, discoveredIp, isLocalIP, isSameSubnet]);
 
   // 初始化本地IP
   useEffect(() => {
@@ -121,7 +122,7 @@ export default function NetworkTester() {
     return isLocal
         ? `ws://${discoveredIp}:37521`
         : `ws://${discoveredIp}:37521/heartbeat`;
-  }, [discoveredIp, localIP]);
+  }, [discoveredIp, localIP, isSameSubnet]);
 
   // WebSocket 连接管理
   useEffect(() => {
