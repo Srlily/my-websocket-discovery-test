@@ -3,7 +3,7 @@ name: Deploy Next.js App to GitHub Pages
 on:
   push:
     branches:
-      - master
+      - main
 
 permissions:
   contents: write
@@ -32,4 +32,4 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./out
-          cname: ttt.srliy.com # Publish to app.ets2la.com
+          cname: ttt.srliy.com

@@ -1,12 +1,11 @@
-import type { NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { Bonjour } from 'bonjour-service';
 
-export default function handler(res: NextApiResponse) {
+export default function handler(_req: NextApiRequest, res: NextApiResponse) {
     const instance = new Bonjour();
     const timeout = 10000; // 10秒超时
     const uniqueIPs = new Set<string>();
-    let browser: ReturnType<typeof instance.find>;
-
+    let browser: ReturnType<typeof instance.find> | undefined;
     let resolved = false; // 标记是否已响应
 
     const cleanup = () => {
@@ -14,19 +13,17 @@ export default function handler(res: NextApiResponse) {
         instance.destroy();
     };
 
-    // 立即返回发现的IP（即使超时前）
     const respond = () => {
         if (resolved) return;
         resolved = true;
         clearTimeout(timer); // 提前清除
         cleanup();
-        res.status(200).json({ ips: Array.from(uniqueIPs) });
+        res.status(200).json({ ips: Array.from(uniqueIPs) }); // 修正后的正确调用
     };
 
-    // 设置超时
     const timer = setTimeout(() => {
         if (!resolved && uniqueIPs.size === 0) {
-            respond(); // 超时后返回空结果
+            respond();
         }
     }, timeout);
 
@@ -54,7 +51,6 @@ export default function handler(res: NextApiResponse) {
                 if (cleanAddr) uniqueIPs.add(cleanAddr);
             });
 
-            // 发现第一个IP后立即返回
             if (uniqueIPs.size > 0 && !resolved) {
                 respond();
             }
@@ -67,6 +63,7 @@ export default function handler(res: NextApiResponse) {
         });
 
     } catch (err) {
+        console.error('[mDNS] 初始化失败:', err);
         cleanup();
         res.status(500).json({ error: '服务初始化失败' });
     }
