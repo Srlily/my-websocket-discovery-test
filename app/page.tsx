@@ -29,38 +29,34 @@ export default function NetworkTester() {
   const [discoveryStatus, setDiscoveryStatus] = useState<'scanning' | 'completed' | 'error'>('completed');
   const [discoveredServicesCount, setDiscoveredServicesCount] = useState(0);
 
+  // 1. 初始化 isSameSubnet 函数
   const isSameSubnet = (ip1: string, ip2: string): boolean => {
     const subnet = (ip: string) => ip.split('.').slice(0, 3).join('.');
     return subnet(ip1) === subnet(ip2);
   };
 
-  // 1. 初始化 isLocal 状态
+  // 2. 组件挂载时立即执行服务发现
   useEffect(() => {
-    const setLocalFlag = async () => {
-      const localIp = await getLocalIPByBackend();
-      if (localIp && discoveredIp) {
-        setIsLocal(isSameSubnet(localIp, discoveredIp));
+    const fetchInitialIPs = async () => {
+      try {
+        const ips = await discoverServices();
+        setServerIPs(ips);
+        setDiscoveredServicesCount(ips.length);
+      } catch (err) {
+        addLog('error', `服务发现失败: ${err}`);
       }
     };
-    setLocalFlag();
-  }, [discoveredIp, localIP, isSameSubnet]);
+    fetchInitialIPs();
+  }, []);
 
-  // 2. 服务发现轮询
+  // 3. 服务发现轮询（每30秒）
   useEffect(() => {
     const discoveryPoll = setInterval(async () => {
       try {
         setDiscoveryStatus('scanning');
         const ips = await discoverServices();
-        setServerIPs(prev => ips.length !== prev.length ? ips : prev);
+        setServerIPs(ips);
         setDiscoveredServicesCount(ips.length);
-
-        if (ips.length > 0) {
-          const validIP = ips.find(ip => isValidIP(ip)) || ips[0];
-          if (validIP !== discoveredIp) {
-            setDiscoveredIp(validIP);
-            addLog('success', `发现新服务: ${validIP}`);
-          }
-        }
         setDiscoveryStatus('completed');
       } catch (err) {
         setDiscoveryStatus('error');
@@ -71,55 +67,59 @@ export default function NetworkTester() {
     return () => clearInterval(discoveryPoll);
   }, []);
 
-  // 3. 动态生成 WebSocket URL（关键修复）
-  const wsUrl = useMemo(() => {
-    if (isLocal === null) return '';
-    if (isLocal) {
-      if (discoveredIp) {
-        return `ws://${discoveredIp}:37521`; // 明确指定端口
-      }
-      return '';
-    } else {
-      // 远程地址需明确指定端口（假设后端服务监听37521）
-      return 'ws://ttt.srliy.com:37521/heartbeat';
-    }
-  }, [isLocal, discoveredIp]);
+  // 4. 自动选择匹配的IP
+  useEffect(() => {
+    if (serverIPs.length > 0 && localIP) {
+      const validIPs = serverIPs.filter(isValidIP);
+      const matchingValidIPs = validIPs.filter(ip => isSameSubnet(ip, localIP));
+      const newDiscoveredIp =
+          matchingValidIPs[0] ||
+          validIPs[0] ||
+          serverIPs[0];
 
-  // 4. 初始化本地IP
+      // 只有当 newDiscoveredIp 存在时才更新，避免覆盖有效值
+      if (newDiscoveredIp && newDiscoveredIp !== discoveredIp) {
+        setDiscoveredIp(newDiscoveredIp);
+        addLog('success', `自动选择服务IP: ${newDiscoveredIp}`);
+      }
+    }
+  }, [serverIPs, localIP]);
+
+  // 5. 初始化本地IP
   useEffect(() => {
     const fetchLocalIP = async () => {
       const localIp = await getLocalIPByBackend();
-      if (localIp && !discoveredIp) {
+      if (localIp) {
         setLocalIP(localIp);
       }
     };
     fetchLocalIP();
-  }, [discoveredIp]);
-
-  // 5. 获取服务器IP列表
-  useEffect(() => {
-    const fetchServerIPs = async () => {
-      try {
-        const res = await fetch('/api/discover');
-        const data = await res.json();
-        const serverIPs = data.ips || [];
-        setServerIPs(serverIPs);
-      } catch (err) {
-        addLog('error', `获取服务器IP失败: ${err instanceof Error ? err.message : '未知错误'}`);
-      }
-    };
-    fetchServerIPs();
   }, []);
 
-  // 6. 计算匹配IP
+  // 6. 计算 isLocal 状态
   useEffect(() => {
-    if (localIP && serverIPs.length > 0) {
-      const matching = serverIPs.filter(ip => isSameSubnet(ip, localIP));
-      setMatchingIPs(matching);
-    }
-  }, [localIP, serverIPs]);
+    const updateLocalFlag = async () => {
+      const localIp = await getLocalIPByBackend();
+      if (discoveredIp && localIp) {
+        setIsLocal(isSameSubnet(localIp, discoveredIp));
+      }
+    };
+    updateLocalFlag();
+  }, [discoveredIp, localIP]);
 
-  // 7. WebSocket连接管理
+  // 7. 生成 WebSocket URL
+  const wsUrl = useMemo(() => {
+    if (!discoveredIp) return '';
+
+    // 当isLocal未就绪时，暂时使用本地模式
+    const currentIsLocal = isLocal ?? isSameSubnet(discoveredIp, localIP || '');
+
+    return currentIsLocal
+        ? `ws://${discoveredIp}:37521`
+        : 'ws://ttt.srliy.com:37521/heartbeat';
+  }, [discoveredIp, isLocal, localIP]);
+
+  // 8. WebSocket 连接管理
   useEffect(() => {
     if (!discoveredIp) return;
 
@@ -128,6 +128,7 @@ export default function NetworkTester() {
     const connect = async () => {
       if (socketRef.current) {
         socketRef.current.close();
+        socketRef.current = null;
       }
 
       const newSocket = new WebSocket(wsUrl);
@@ -137,12 +138,13 @@ export default function NetworkTester() {
         clearTimeout(reconnectTimer!);
         setConnectionStatus('connected');
         setRetryCount(0);
-        addLog('success', 'WebSocket已连接');
+        addLog('success', `WebSocket已连接到 ${wsUrl}`);
       };
 
       newSocket.onerror = (error: Event) => {
         const errorMessage = (error as ErrorEvent).message || '未知WebSocket错误';
-        setConnectionError(errorMessage);
+        const errorType = (error as ErrorEvent).type || '未指定';
+        setConnectionError(`错误类型: ${errorType}, 信息: ${errorMessage}`);
         addLog('error', `WebSocket连接错误: ${errorMessage}`);
 
         if (retryCount < MAX_RETRIES) {
@@ -150,16 +152,20 @@ export default function NetworkTester() {
           reconnectTimer = setTimeout(connect, timeout);
           setRetryCount(prev => prev + 1);
         } else {
-          addLog('error', `已达到最大重试次数(${MAX_RETRIES})`);
           setConnectionStatus('disconnected');
+          addLog('error', `已达到最大重试次数(${MAX_RETRIES})`);
         }
       };
 
       newSocket.onclose = (event) => {
         clearTimeout(reconnectTimer!);
-        if (event.code !== 1000) {
-          setConnectionError('连接意外中断');
-          addLog('error', `连接意外中断: ${event.reason}`);
+        const closeCode = event.code;
+        const reason = event.reason || '无详细信息';
+
+        if (closeCode !== 1000) {
+          setConnectionError(`连接关闭代码: ${closeCode}, 原因: ${reason}`);
+          addLog('error', `连接意外中断: ${reason}`);
+
           if (retryCount < MAX_RETRIES) {
             reconnectTimer = setTimeout(connect, 1000);
             setRetryCount(prev => prev + 1);
@@ -167,6 +173,7 @@ export default function NetworkTester() {
         } else {
           setConnectionError('连接已关闭');
           addLog('info', 'WebSocket连接已关闭');
+          setConnectionStatus('disconnected');
         }
       };
 
@@ -188,9 +195,6 @@ export default function NetworkTester() {
   const addLog = (type: LogEntry['type'], message: string) => {
     setLogs(prev => [...prev, { type, message, timestamp: new Date() }]);
   };
-
-
-
 
   // 按钮事件
   const testWebSocket = () => {
@@ -254,6 +258,7 @@ export default function NetworkTester() {
     console.log('当前 discoveredIp:', discoveredIp);
     console.log('生成的 wsUrl:', wsUrl);
   }, [discoveredIp, wsUrl]);
+
   return (
       <div className="container mx-auto p-4">
         <h1 className="text-2xl font-bold mb-4">网络测试工具</h1>
@@ -290,12 +295,6 @@ export default function NetworkTester() {
             测试HTTP
           </button>
         </div>
-
-         {/*ServiceConnector组件*/}
-        {/*<ServiceConnector*/}
-        {/*    onLog={(type, msg) => addLog(type, msg)}*/}
-        {/*    wsUrl={wsUrl}*/}
-        {/*/>*/}
 
         {/* WebSocket状态监控 */}
         <WebSocketStatus
