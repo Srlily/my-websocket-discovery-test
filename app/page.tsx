@@ -1,6 +1,6 @@
 // app/page.tsx
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import WebSocketStatus from '@/components/WebSocketStatus';
 import { getLocalIPByBackend } from '@/utils/network';
 import ServiceConnector from "@/components/ServiceConnector";
@@ -12,7 +12,6 @@ type LogEntry = {
 };
 
 export default function NetworkTester() {
-  // 状态管理
   const [discoveredIp, setDiscoveredIp] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isTesting, setIsTesting] = useState(false);
@@ -24,8 +23,27 @@ export default function NetworkTester() {
   const [serverIPs, setServerIPs] = useState<string[]>([]);
   const [matchingIPs, setMatchingIPs] = useState<string[]>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-
   const socketRef = useRef<WebSocket | null>(null);
+
+  // 判断是否为本地环境
+  const isLocal = useMemo(() => {
+    return (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1'
+    );
+  }, []);
+
+  // 动态生成 WebSocket 地址
+  const wsUrl = useMemo(() => {
+    if (isLocal) {
+      if (discoveredIp) {
+        return `ws://${discoveredIp}:37521`;
+      }
+      return '';
+    } else {
+      return 'wss://ttt.srliy.com/api/backend/heartbeat';
+    }
+  }, [isLocal, discoveredIp]);
 
   // 初始化本地IP
   useEffect(() => {
@@ -33,7 +51,7 @@ export default function NetworkTester() {
       const localIp = await getLocalIPByBackend();
       if (localIp && !discoveredIp) {
         setDiscoveredIp(localIp);
-        setLocalIP(localIp); // 同步到父组件
+        setLocalIP(localIp);
       }
     };
     fetchLocalIP();
@@ -64,9 +82,7 @@ export default function NetworkTester() {
   // 计算匹配IP
   useEffect(() => {
     if (localIP && serverIPs.length > 0) {
-      const matching = serverIPs
-          // .filter((ip) => typeof ip === 'string')
-          .filter((ip) => isSameSubnet(ip, localIP));
+      const matching = serverIPs.filter((ip) => isSameSubnet(ip, localIP));
       setMatchingIPs(matching);
     }
   }, [localIP, serverIPs]);
@@ -75,7 +91,6 @@ export default function NetworkTester() {
   useEffect(() => {
     if (!discoveredIp) return;
 
-    const wsUrl = `ws://${discoveredIp}:37521`;
     const newSocket = new WebSocket(wsUrl);
     socketRef.current = newSocket;
 
@@ -107,7 +122,7 @@ export default function NetworkTester() {
         newSocket.close();
       }
     };
-  }, [discoveredIp]);
+  }, [discoveredIp, wsUrl]);
 
   // 辅助方法
   const addLog = (type: LogEntry['type'], message: string) => {
@@ -221,9 +236,11 @@ export default function NetworkTester() {
           </button>
         </div>
 
-        {/* 新增ServiceConnector组件 */}
-        <ServiceConnector onLog={(type, msg) => addLog(type, msg)} />
-
+        {/* ServiceConnector组件 */}
+        <ServiceConnector
+            onLog={(type, msg) => addLog(type, msg)}
+            wsUrl={wsUrl}
+        />
 
         {/* WebSocket状态监控 */}
         <WebSocketStatus
