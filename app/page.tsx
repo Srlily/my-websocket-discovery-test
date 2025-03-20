@@ -1,5 +1,6 @@
+// app/page.tsx
 'use client';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import WebSocketStatus from '@/components/WebSocketStatus';
 import { discoverServices, getLocalIPByBackend, isValidIP } from '@/utils/network';
 
@@ -22,34 +23,53 @@ export default function NetworkTester() {
   const [matchingIPs] = useState<string[]>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
-  const [isLocal, setIsLocal] = useState<boolean | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const MAX_RETRIES = 32;
 
   const [discoveryStatus, setDiscoveryStatus] = useState<'scanning' | 'completed' | 'error'>('completed');
   const [discoveredServicesCount, setDiscoveredServicesCount] = useState(0);
 
-  // 1. 初始化 isSameSubnet 函数
+  // 网络辅助函数
   const isSameSubnet = (ip1: string, ip2: string): boolean => {
     const subnet = (ip: string) => ip.split('.').slice(0, 3).join('.');
     return subnet(ip1) === subnet(ip2);
   };
 
-  // 2. 组件挂载时立即执行服务发现
+  // 获取远程服务器列表
+  const getRemoteServers = useCallback(async (): Promise<{ user_id: string; ip: string }[]> => {
+    try {
+      const res = await fetch('/api/remote-servers');
+      const data = await res.json();
+      return data.servers || [];
+    } catch (error) {
+      addLog('error', `获取远程服务器失败: ${error}`);
+      return [];
+    }
+  }, []);
+
+  // 判断是否为内网IP
+  const isLocalIP = (ip: string): boolean => {
+    return ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.');
+  };
+
+  // 初始化服务发现
   useEffect(() => {
     const fetchInitialIPs = async () => {
       try {
-        const ips = await discoverServices();
-        setServerIPs(ips);
-        setDiscoveredServicesCount(ips.length);
+        const localIps = await discoverServices();
+        const remoteServers = await getRemoteServers();
+        const remoteIps = remoteServers.map(s => s.ip);
+        const combinedIps = [...new Set([...localIps, ...remoteIps])];
+        setServerIPs(combinedIps);
+        setDiscoveredServicesCount(combinedIps.length);
       } catch (err) {
         addLog('error', `服务发现失败: ${err}`);
       }
     };
     fetchInitialIPs();
-  }, []);
+  }, [getRemoteServers]);
 
-  // 3. 服务发现轮询（每30秒）
+  // 定时轮询服务发现
   useEffect(() => {
     const discoveryPoll = setInterval(async () => {
       try {
@@ -67,59 +87,43 @@ export default function NetworkTester() {
     return () => clearInterval(discoveryPoll);
   }, []);
 
-  // 4. 自动选择匹配的IP
+  // 自动选择最优IP
   useEffect(() => {
     if (serverIPs.length > 0 && localIP) {
       const validIPs = serverIPs.filter(isValidIP);
-      const matchingValidIPs = validIPs.filter(ip => isSameSubnet(ip, localIP));
-      const newDiscoveredIp =
-          matchingValidIPs[0] ||
-          validIPs[0] ||
-          serverIPs[0];
+      const publicIP = validIPs.find(ip => !isLocalIP(ip));
+      const localIPs = validIPs.filter(ip => isSameSubnet(ip, localIP));
 
-      // 只有当 newDiscoveredIp 存在时才更新，避免覆盖有效值
+      const newDiscoveredIp =
+          publicIP ||
+          (localIPs.length > 0 ? localIPs[0] : validIPs[0]);
+
       if (newDiscoveredIp && newDiscoveredIp !== discoveredIp) {
         setDiscoveredIp(newDiscoveredIp);
         addLog('success', `自动选择服务IP: ${newDiscoveredIp}`);
       }
     }
-  },[serverIPs, localIP, discoveredIp]);
+  }, [serverIPs, localIP, discoveredIp]);
 
-  // 5. 初始化本地IP
+  // 初始化本地IP
   useEffect(() => {
     const fetchLocalIP = async () => {
       const localIp = await getLocalIPByBackend();
-      if (localIp) {
-        setLocalIP(localIp);
-      }
+      if (localIp) setLocalIP(localIp);
     };
     fetchLocalIP();
   }, []);
 
-  // 6. 计算 isLocal 状态
-  useEffect(() => {
-    const updateLocalFlag = async () => {
-      const localIp = await getLocalIPByBackend();
-      if (discoveredIp && localIp) {
-        setIsLocal(isSameSubnet(localIp, discoveredIp));
-      }
-    };
-    updateLocalFlag();
-  }, [discoveredIp, localIP]);
-
-  // 7. 生成 WebSocket URL
+  // WebSocket URL 计算
   const wsUrl = useMemo(() => {
     if (!discoveredIp) return '';
-
-    // 当isLocal未就绪时，暂时使用本地模式
-    const currentIsLocal = isLocal ?? isSameSubnet(discoveredIp, localIP || '');
-
-    return currentIsLocal
+    const isLocal = isSameSubnet(discoveredIp, localIP || '');
+    return isLocal
         ? `ws://${discoveredIp}:37521`
-        : 'ws://ttt.srliy.com:37521/heartbeat';
-  }, [discoveredIp, isLocal, localIP]);
+        : `ws://${discoveredIp}:37521/heartbeat`;
+  }, [discoveredIp, localIP]);
 
-  // 8. WebSocket 连接管理
+  // WebSocket 连接管理
   useEffect(() => {
     if (!discoveredIp) return;
 
@@ -165,7 +169,6 @@ export default function NetworkTester() {
         if (closeCode !== 1000) {
           setConnectionError(`连接关闭代码: ${closeCode}, 原因: ${reason}`);
           addLog('error', `连接意外中断: ${reason}`);
-
           if (retryCount < MAX_RETRIES) {
             reconnectTimer = setTimeout(connect, 1000);
             setRetryCount(prev => prev + 1);
@@ -186,30 +189,28 @@ export default function NetworkTester() {
     connect();
 
     return () => {
-      if (socketRef.current) socketRef.current.close();
+      socketRef.current?.close();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
   }, [discoveredIp, wsUrl, retryCount]);
 
-  // 辅助方法
+  // 日志辅助函数
   const addLog = (type: LogEntry['type'], message: string) => {
     setLogs(prev => [...prev, { type, message, timestamp: new Date() }]);
   };
 
-  // 按钮事件
+  // 测试按钮事件
   const testWebSocket = () => {
     const socket = socketRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       addLog('error', 'WebSocket未连接，无法发送测试消息');
       return;
     }
-
     const message = JSON.stringify({
       text: '测试通知',
       type: 'success',
       promise: '',
     });
-
     socket.send(message);
     addLog('success', 'WebSocket测试消息已发送');
   };
@@ -219,27 +220,21 @@ export default function NetworkTester() {
       addLog('error', '未发现服务，无法进行HTTP测试');
       return;
     }
-
     setIsTesting(true);
     addLog('info', `开始HTTP测试...目标IP: ${discoveredIp}`);
-
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-
       const response = await fetch(
           `http://${discoveredIp}:37520/backend/ip`,
           { signal: controller.signal }
       );
-
       clearTimeout(timeout);
-
       if (response.ok) {
         const data = await response.json();
         const ips = data.ips?.join(', ') || '无可用IP';
         addLog('success', `HTTP测试成功！可用IP地址: ${ips}`);
-
-        if (data.ips?.length && data.ips[0] !== discoveredIp) {
+        if (data.ips?.[0] && data.ips[0] !== discoveredIp) {
           setDiscoveredIp(data.ips[0]);
           addLog('info', `自动设置服务地址为: ${data.ips[0]}`);
         }
