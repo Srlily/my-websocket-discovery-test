@@ -83,7 +83,7 @@ export default function NetworkTester() {
         addLog('success', `自动选择服务IP: ${newDiscoveredIp}`);
       }
     }
-  }, [serverIPs, localIP]);
+  },[serverIPs, localIP, discoveredIp]);
 
   // 5. 初始化本地IP
   useEffect(() => {
@@ -189,7 +189,7 @@ export default function NetworkTester() {
       if (socketRef.current) socketRef.current.close();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, [discoveredIp, wsUrl]);
+  }, [discoveredIp, wsUrl, retryCount]);
 
   // 辅助方法
   const addLog = (type: LogEntry['type'], message: string) => {
