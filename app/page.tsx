@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import WebSocketStatus from '@/components/WebSocketStatus';
 import { getLocalIPByBackend } from '@/utils/network';
+import ServiceConnector from "@/components/ServiceConnector";
 
 type LogEntry = {
   type: 'info' | 'success' | 'error';
@@ -219,6 +220,10 @@ export default function NetworkTester() {
             测试HTTP
           </button>
         </div>
+
+        {/* 新增ServiceConnector组件 */}
+        <ServiceConnector onLog={(type, msg) => addLog(type, msg)} />
+
 
         {/* WebSocket状态监控 */}
         <WebSocketStatus
