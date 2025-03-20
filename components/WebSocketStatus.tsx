@@ -1,3 +1,4 @@
+// components/WebSocketStatus.tsx
 import React from 'react';
 
 interface WebSocketStatusProps {
@@ -5,9 +6,8 @@ interface WebSocketStatusProps {
     messages: string[];
     localIP: string | null;
     serverIPs: string[];
-    matchingIPs: string[];
     connectionError: string | null;
-    discoveryStatus: 'scanning' | 'completed' | 'error';
+    discoveryStatus: string;
     discoveredServices: number;
 }
 
@@ -16,10 +16,7 @@ export default function WebSocketStatus({
                                             messages,
                                             localIP,
                                             serverIPs,
-                                            matchingIPs,
                                             connectionError,
-                                            discoveryStatus,
-                                            discoveredServices,
                                         }: WebSocketStatusProps) {
     return (
         <div className="p-4 bg-gray-100 rounded-lg">
@@ -33,39 +30,13 @@ export default function WebSocketStatus({
                 </div>
             )}
 
-            {discoveryStatus === 'scanning' && (
-                <div className="text-blue-500">扫描进行中... 已发现 {discoveredServices} 个服务</div>
-            )}
-            {discoveryStatus === 'error' && (
-                <div className="text-red-500">服务发现失败</div>
-            )}
-
             {/* 服务器IP列表 */}
             {serverIPs.length > 0 && (
                 <div className="mt-4">
-                    <p className="text-blue-600 mb-2">服务器IP列表：</p>
+                    <p className="text-blue-600 mb-2">可用服务IP列表：</p>
                     <ul className="list-disc pl-6">
                         {serverIPs.map((ip, index) => (
                             <li key={index} className="font-mono">
-                                {ip}
-                                {matchingIPs.includes(ip) && '✅ 同一网段'}
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-
-            )}
-
-            {/* 匹配IP列表 */}
-            {matchingIPs.length > 0 && (
-                <div className="mt-6">
-                    <p className="text-green-600 font-bold mb-2">可连接的服务器IP：</p>
-                    <ul className="list-disc pl-6">
-                        {matchingIPs.map((ip, index) => (
-                            <li
-                                key={index}
-                                className="font-mono bg-green-100 p-1 rounded"
-                            >
                                 {ip}
                             </li>
                         ))}
@@ -77,12 +48,12 @@ export default function WebSocketStatus({
             <div className="mt-6">
                 <p className="text-blue-600 mb-2">WebSocket连接状态：</p>
                 {status === 'connected' && (
-                    <div className="text-green-600">✅ 已连接到 {matchingIPs[0]}</div>
+                    <div className="text-green-600">✅ 已连接</div>
                 )}
                 {connectionError && (
                     <div className="text-red-600">❌ {connectionError}</div>
                 )}
-                {status !== 'connected' && !connectionError && (
+                {status === 'connecting' && (
                     <div className="text-yellow-600">正在尝试连接...</div>
                 )}
             </div>

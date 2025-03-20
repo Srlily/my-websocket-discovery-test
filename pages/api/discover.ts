@@ -1,12 +1,13 @@
+// discover.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { Bonjour } from 'bonjour-service';
 
 export default function handler(_req: NextApiRequest, res: NextApiResponse) {
     const instance = new Bonjour();
-    const timeout = 10000; // 10秒超时
+    const timeout = 10000;
     const uniqueIPs = new Set<string>();
-    let browser: ReturnType<typeof instance.find> | undefined;
-    let resolved = false; // 标记是否已响应
+    let browser: ReturnType<InstanceType<typeof Bonjour>['find']> | undefined;
+    let resolved = false;
 
     const cleanup = () => {
         browser?.stop();
@@ -16,34 +17,23 @@ export default function handler(_req: NextApiRequest, res: NextApiResponse) {
     const respond = () => {
         if (resolved) return;
         resolved = true;
-        clearTimeout(timer); // 提前清除
+        clearTimeout(timer);
         cleanup();
-        res.status(200).json({ ips: Array.from(uniqueIPs) }); // 修正后的正确调用
+        res.status(200).json({ ips: Array.from(uniqueIPs) });
     };
 
     const timer = setTimeout(() => {
-        if (!resolved && uniqueIPs.size === 0) {
-            respond();
-        }
+        if (!resolved && uniqueIPs.size === 0) respond();
     }, timeout);
 
     try {
-        browser = instance.find({
-            type: 'ETS2LA-WS',
-        });
+        browser = instance.find({ type: 'ETS2LA-WS' }); // 正确调用实例方法
 
         browser.on('up', (service) => {
-            console.log('[DEBUG] 发现服务:', {
-                name: service.name,
-                type: service.type,
-                host: service.host,
-                addresses: service.addresses,
-            });
-
             const addresses = [
                 ...(service.addresses || []),
                 service.host,
-                ...(service.referer?.address ? [service.referer.address] : []),
+                service.referer?.address,
             ];
 
             addresses.forEach((addr) => {
@@ -51,19 +41,16 @@ export default function handler(_req: NextApiRequest, res: NextApiResponse) {
                 if (cleanAddr) uniqueIPs.add(cleanAddr);
             });
 
-            if (uniqueIPs.size > 0 && !resolved) {
-                respond();
-            }
+            if (uniqueIPs.size > 0 && !resolved) respond();
         });
 
         browser.on('error', (err) => {
-            console.error('[mDNS] 扫描错误:', err);
+            console.error(err);
             cleanup();
-            res.status(500).json({ error: '扫描过程中发生错误' });
+            res.status(500).json({ error: '扫描失败' });
         });
-
     } catch (err) {
-        console.error('[mDNS] 初始化失败:', err);
+        console.error(err);
         cleanup();
         res.status(500).json({ error: '服务初始化失败' });
     }

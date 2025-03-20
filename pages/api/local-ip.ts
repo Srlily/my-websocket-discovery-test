@@ -21,13 +21,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse<IPResp
     }
 
     const isLocal = clientIp === '127.0.0.1' ||
-        (clientIp?.startsWith('192.168') ||
-            clientIp?.startsWith('10.') ||
-            clientIp?.startsWith('172.(1[6-9]|2[0-9]|3[0-1]).'));
+        clientIp?.startsWith('192.168') ||
+        clientIp?.startsWith('10.') ||
+        clientIp?.startsWith('172.');
 
-    res.status(200).json({
-        ip: clientIp,
-        isLocal
-    });
-
+    res.status(200).json({ ip: clientIp, isLocal });
 }
