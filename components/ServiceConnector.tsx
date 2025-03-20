@@ -9,19 +9,38 @@ interface ServiceConnectorProps {
 
 export default function ServiceConnector({ onLog, wsUrl }: ServiceConnectorProps) {
     useEffect(() => {
-        const ws = new WebSocket(wsUrl);
+        let retries = 0;
+        const MAX_RETRIES = 5;
+        let wsInstance: WebSocket;
 
-        ws.onmessage = (event) => {
-            onLog('info', `收到服务端消息: ${event.data}`);
+        const connect = () => {
+            wsInstance = new WebSocket(wsUrl);
+
+            wsInstance.onopen = () => {
+                retries = 0;
+                onLog('info', 'WebSocket连接成功');
+            };
+
+            wsInstance.onclose = () => {
+                if (retries < MAX_RETRIES) {
+                    const delay = Math.pow(2, retries) * 1000;
+                    setTimeout(connect, delay);
+                    retries++;
+                    onLog('info', `尝试第 ${retries} 次重连...`);
+                }
+            };
+
+            wsInstance.onerror = (error) => {
+                onLog('error', `连接错误: ${error}`);
+            };
         };
 
-        ws.onerror = (error: Event) => {
-            const message = (error as ErrorEvent).message || error.toString();
-            onLog('error', `WebSocket错误: ${message}`);
-        };
+        connect();
 
-        return () => ws.close();
-    }, [onLog, wsUrl]);
+        return () => {
+            wsInstance?.close();
+        };
+    }, [wsUrl, onLog]);
 
     return null;
 }

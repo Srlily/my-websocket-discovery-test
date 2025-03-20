@@ -1,6 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
+interface IPResponse {
+    ip: string;
+    isLocal: boolean;
+}
+
+export default function handler(req: NextApiRequest, res: NextApiResponse<IPResponse>) {
     let clientIp = req.socket.remoteAddress;
 
     if (clientIp?.startsWith("::ffff:")) {
@@ -15,5 +20,14 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
         clientIp = "无法获取IP";
     }
 
-    res.status(200).json({ ip: clientIp });
+    const isLocal = clientIp === '127.0.0.1' ||
+        (clientIp?.startsWith('192.168') ||
+            clientIp?.startsWith('10.') ||
+            clientIp?.startsWith('172.(1[6-9]|2[0-9]|3[0-1]).'));
+
+    res.status(200).json({
+        ip: clientIp,
+        isLocal
+    });
+
 }

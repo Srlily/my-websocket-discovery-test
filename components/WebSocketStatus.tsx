@@ -8,6 +8,8 @@ interface WebSocketStatusProps {
     serverIPs: string[];
     matchingIPs: string[];
     connectionError: string | null;
+    discoveryStatus: 'scanning' | 'completed' | 'error';
+    discoveredServices: number;
 }
 
 export default function WebSocketStatus({
@@ -17,6 +19,8 @@ export default function WebSocketStatus({
                                             serverIPs,
                                             matchingIPs,
                                             connectionError,
+                                            discoveryStatus,
+                                            discoveredServices,
                                         }: WebSocketStatusProps) {
     return (
         <div className="p-4 bg-gray-100 rounded-lg">
@@ -28,6 +32,13 @@ export default function WebSocketStatus({
                     <p className="mb-2 text-green-600">您的局域网IP：</p>
                     <div className="font-mono bg-gray-200 p-2 rounded">{localIP}</div>
                 </div>
+            )}
+
+            {discoveryStatus === 'scanning' && (
+                <div className="text-blue-500">扫描进行中... 已发现 {discoveredServices} 个服务</div>
+            )}
+            {discoveryStatus === 'error' && (
+                <div className="text-red-500">服务发现失败</div>
             )}
 
             {/* 服务器IP列表 */}
@@ -43,6 +54,7 @@ export default function WebSocketStatus({
                         ))}
                     </ul>
                 </div>
+
             )}
 
             {/* 匹配IP列表 */}
