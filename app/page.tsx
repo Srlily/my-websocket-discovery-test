@@ -1,16 +1,19 @@
-// pages/index.tsx
-"use client"
-import { NextPage } from 'next';
-import ConnectionManager from '../components/NetworkDiscovery';
+// app/page.tsx
+import dynamic from "next/dynamic";
 
-const HomePage: NextPage = () => {
-  return (
-      <div>
-        <h1>服务端自动发现示例</h1>
-        <ConnectionManager />
-        {/* 其他 UI 组件 */}
-      </div>
-  );
-};
+const NetworkDiscovery = dynamic(
+    () => import("@/components/NetworkDiscovery"),
+    {
+        ssr: false,
+        loading: () => <div>正在初始化本地连接...</div>
+    }
+);
 
-export default HomePage;
+export default function Home() {
+    return (
+        <main className="container">
+            <h1>本地服务控制器</h1>
+            <NetworkDiscovery />
+        </main>
+    );
+}

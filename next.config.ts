@@ -1,17 +1,14 @@
+// next.config.ts
 import type { NextConfig } from "next";
 
-const isExportBuild =
-    process.env.NODE_ENV === "production" ||
-    process.env.BUILD_TYPE === "deploy";
-
 const nextConfig: NextConfig = {
-    output: isExportBuild ? "export" : undefined,
-    devServer: {
-        host: "0.0.0.0",
-        port: 3000,
-    },
+    output: "export",
     images: {
         unoptimized: true,
+    },
+    // 添加WebSocket协议支持
+    experimental: {
+        webpackBuildWorker: true,
     },
 };
 
