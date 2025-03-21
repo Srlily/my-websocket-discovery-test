@@ -1,5 +1,9 @@
 // components/NetworkDiscovery.tsx
-import { useState, useEffect } from 'react';
+import {
+    useState,
+    useEffect,
+    useCallback
+} from 'react';
 import { API_PORT, discoverServer, discoverViaAPI } from '@/utils/discovery';
 
 const NetworkDiscovery = () => {
@@ -7,90 +11,85 @@ const NetworkDiscovery = () => {
     const [serverIP, setServerIP] = useState('');
     const [logs, setLogs] = useState<string[]>([]);
 
-    const addLog = (message: string) => {
+    const addLog = useCallback((message: string) => {
         setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`]);
-    };
+    }, []);
 
-    const startDiscovery = async () => {
+    const verifyAPIAccess = useCallback(async (ip: string) => {
+        try {
+            const url = `http://${ip}:${API_PORT}/backend/ip`;
+            addLog(`尝试连接 API: ${url}`);
+
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            addLog(`API 验证成功: ${JSON.stringify(data)}`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : '未知错误';
+            addLog(`API 验证失败: ${message}`);
+            throw error;
+        }
+    }, [addLog]);
+
+    const startDiscovery = useCallback(async () => {
         setStatus('scanning');
         addLog('启动服务端发现流程...');
 
         try {
-            // WebSocket 发现（带进度回调）
-            const ip = await discoverServer((progress) => addLog(`[WS扫描] ${progress}`));
-            addLog(`通过 WebSocket 发现服务端: ${ip}`);
-
-            // API 验证
-            addLog('开始验证 API 接口...');
+            // 尝试 WebSocket 发现
+            const ip = await discoverServer();
+            addLog(`发现服务端: ${ip}`);
             await verifyAPIAccess(ip);
 
             setServerIP(ip);
             setStatus('connected');
             localStorage.setItem('serverIP', ip);
         } catch (error) {
-            addLog(`WebSocket 发现失败: ${error.message}`);
+            const message = error instanceof Error ? error.message : '未知错误';
+            addLog(`WebSocket 发现失败: ${message}`);
+
+            // 回退到 API 发现
             try {
                 addLog('尝试 API 发现...');
-                const ip = await discoverViaAPI();
-                addLog(`通过 API 发现服务端: ${ip}`);
+                const apiIP = await discoverViaAPI();
+                addLog(`通过 API 发现: ${apiIP}`);
+                await verifyAPIAccess(apiIP);
 
-                addLog('开始验证 API 接口...');
-                await verifyAPIAccess(ip);
-
-                setServerIP(ip);
+                setServerIP(apiIP);
                 setStatus('connected');
-                localStorage.setItem('serverIP', ip);
+                localStorage.setItem('serverIP', apiIP);
             } catch (apiError) {
-                addLog(`所有自动发现方式失败: ${apiError.message}`);
+                const apiMessage = apiError instanceof Error ? apiError.message : '未知错误';
+                addLog(`所有发现方式失败: ${apiMessage}`);
                 setStatus('error');
             }
         }
-    };
-
-    const verifyAPIAccess = async (ip: string) => {
-        try {
-            const url = `http://${ip}:${API_PORT}/backend/ip`;
-            addLog(`尝试连接 API: ${url}`);
-
-            const response = await fetch(url);
-            addLog(`API 响应状态: ${response.status}`);
-
-            if (!response.ok) {
-                throw new Error(`HTTP 状态异常: ${response.status}`);
-            }
-
-            const data = await response.json();
-            addLog('API 验证成功: ' + JSON.stringify(data));
-        } catch (error) {
-            addLog(`API 验证失败: ${error.message}`);
-            throw error;
-        }
-    };
+    }, [addLog, verifyAPIAccess]);
 
     useEffect(() => {
-        const initDiscovery = async () => {
+        const init = async () => {
             try {
                 const cachedIP = localStorage.getItem('serverIP');
                 if (cachedIP) {
                     addLog('检测到缓存 IP');
                     setServerIP(cachedIP);
                     setStatus('connected');
-                    addLog('使用缓存 IP: ' + cachedIP);
-
-                    // 验证缓存 IP 的有效性
-                    addLog('验证缓存 IP...');
                     await verifyAPIAccess(cachedIP);
-                } else {
-                    await startDiscovery();
+                    return;
                 }
+                await startDiscovery();
             } catch (error) {
-                addLog(`初始化失败: ${error.message}`);
+                const message = error instanceof Error ? error.message : '未知错误';
+                addLog(`初始化失败: ${message}`);
                 setStatus('error');
             }
         };
 
-        initDiscovery();
-    }, []);
+        init();
+    }, [addLog, startDiscovery, verifyAPIAccess]);
 
     return (
         <div className="network-discovery">
@@ -101,7 +100,9 @@ const NetworkDiscovery = () => {
                         <button onClick={() => {
                             localStorage.removeItem('serverIP');
                             window.location.reload();
-                        }}>重新扫描</button>
+                        }}>
+                            重新扫描
+                        </button>
                     </div>
                 )}
                 {status === 'scanning' && <div className="scanning">🔄 扫描中...</div>}
@@ -116,13 +117,15 @@ const NetworkDiscovery = () => {
                                 localStorage.setItem('serverIP', ip);
                                 setStatus('connected');
                             }
-                        }}>手动输入</button>
+                        }}>
+                            手动输入
+                        </button>
                     </div>
                 )}
             </div>
 
             <div className="debug-console">
-                <h4>调试信息</h4>
+                <h4>调试日志</h4>
                 <ul>
                     {logs.map((log, index) => (
                         <li key={index}>{log}</li>
