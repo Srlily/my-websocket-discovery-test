@@ -45,14 +45,7 @@ export const getClientLocalIPs = (): Promise<string[]> => {
     });
 };
 
-// 生成智能候选 IP 列表
-const generateSmartIPs = (clientIP: string): string[] => {
-    const base = clientIP.split('.').slice(0, 3).join('.');
-    return [
-        `${base}.1`, `${base}.100`, `${base}.254`,
-        `${base}.2`, `${base}.101`, `${base}.50`, clientIP
-    ];
-};
+
 
 // WebSocket 健康检查（类型安全版）
 const checkWebSocket = (ip: string): Promise<string> => {
@@ -110,51 +103,60 @@ const checkWebSocket = (ip: string): Promise<string> => {
     });
 };
 
+
+// 生成智能候选 IP 列表
+const generateSmartIPs = (clientIP: string): string[] => {
+    const base = clientIP.split('.').slice(0, 3).join('.');
+
+    // 支持多种常见子网格式
+    return [
+        // 家用路由器常见
+        `${base}.1`, `${base}.100`, `${base}.254`,
+        // 企业网络常见
+        `${base}.2`, `${base}.101`, `${base}.200`,
+        // 移动热点常见
+        '192.168.43.1', '192.168.49.1', '172.20.10.1',
+        // 虚拟机常见
+        '10.0.0.1', '10.0.2.2'
+    ];
+};
+
 // 主发现逻辑
 export const discoverServer = async (): Promise<string> => {
-    if (!isBrowser) throw new Error('发现功能仅在浏览器中可用');
-
     try {
-        // 快速扫描
         const localIPs = await getClientLocalIPs();
-        const candidates = localIPs.flatMap(ip => [
-            ...generateSmartIPs(ip),
-            ...Array.from({ length: 20 }, (_, i) =>
-                `${ip.split('.')[0]}.${ip.split('.')[1]}.${ip.split('.')[2]}.${i + 50}`
-            )
-        ]);
+        if (localIPs.length === 0) throw new Error('无法获取本地IP');
 
-        const BATCH_SIZE = 10;
-        for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-            const batch = candidates.slice(i, i + BATCH_SIZE);
+        // 遍历所有检测到的IP段
+        const allCandidates = localIPs.flatMap(ip => {
+            const base = ip.split('.').slice(0, 3).join('.');
+            return [
+                ...generateSmartIPs(ip),
+                ...Array.from({ length: 20 }, (_, i) => `${base}.${i + 50}`)
+            ];
+        });
+
+        // 去重+随机排序
+        const uniqueIPs = [...new Set(allCandidates)];
+        const shuffledIPs = uniqueIPs.sort(() => Math.random() - 0.5);
+
+        // 分批次扫描
+        const BATCH_SIZE = 15;
+        for (let i = 0; i < shuffledIPs.length; i += BATCH_SIZE) {
+            const batch = shuffledIPs.slice(i, i + BATCH_SIZE);
             const results = await Promise.all(
-                batch.map(ip => checkWebSocket(ip).catch(() => null))
+                batch.map(ip => checkWebSocket(ip).catch(() => {
+                    console.log(`[DEBUG] ${ip} 探测失败`);
+                    return null;
+                }))
             );
             const found = results.find(ip => ip !== null);
             if (found) return found;
         }
 
-        // 全子网扫描
-        const allIPs = localIPs.flatMap(ip =>
-            Array.from({ length: 254 }, (_, i) =>
-                `${ip.split('.')[0]}.${ip.split('.')[1]}.${ip.split('.')[2]}.${i + 1}`
-            )
-        );
-
-        for (let i = 0; i < allIPs.length; i += BATCH_SIZE) {
-            const batch = allIPs.slice(i, i + BATCH_SIZE);
-            const results = await Promise.all(
-                batch.map(ip => checkWebSocket(ip).catch(() => null))
-            );
-            const found = results.find(ip => ip !== null);
-            if (found) return found;
-        }
-
-        throw new Error('无法发现服务端');
+        throw new Error('未发现可用服务端');
     } catch (error) {
-        throw new Error(
-            error instanceof Error ? error.message : '未知错误'
-        );
+        throw new Error(`发现失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
 };
 
@@ -203,3 +205,23 @@ export const discoverViaAPI = async (baseIP: string): Promise<string> => {
         );
     }
 };
+
+function getLocalIP(callback: (ip: string) => void): void {
+    const pc = new RTCPeerConnection({ iceServers: [] }); // 空配置避免使用 STUN/TURN
+    pc.createDataChannel(''); // 创建数据通道触发 ICE 候选
+    pc.createOffer()
+        .then(offer => pc.setLocalDescription(offer))
+        .catch(error => console.error("Error creating offer:", error));
+
+    pc.onicecandidate = (event) => {
+        if (event.candidate) {
+            const ipRegex = /([0-9]{1,3}\.){3}[0-9]{1,3}/;
+            const ip = event.candidate.candidate.match(ipRegex)?.[0];
+            if (ip) callback(ip);
+            pc.close(); // 获取到 IP 后关闭连接
+        }
+    };
+}
+
+// 调用示例
+getLocalIP(ip => console.log("Local IP:", ip));

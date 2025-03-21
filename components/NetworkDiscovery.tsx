@@ -4,7 +4,7 @@ import {
     useEffect,
     useCallback
 } from 'react';
-import {API_PORT, discoverServer, discoverViaAPI, getClientLocalIPs} from '@/utils/discovery';
+import {API_PORT, discoverServer, getClientLocalIPs} from '@/utils/discovery';
 
 const NetworkDiscovery = () => {
     const [status, setStatus] = useState<'init' | 'scanning' | 'connected' | 'error'>('init');
@@ -36,44 +36,34 @@ const NetworkDiscovery = () => {
 
     const startDiscovery = useCallback(async () => {
         setStatus('scanning');
-        addLog('启动服务端发现流程...');
-
-        // 在 try 外部声明 localIPs
-        let localIPs: string[] = [];
+        addLog('开始服务端发现流程...');
 
         try {
-            // 获取本地 IP 列表
-            localIPs = await getClientLocalIPs();
-            // const baseIP = localIPs[0]?.split('.').slice(0, 3).join('.') || '192.168.1';
+            const localIPs = await getClientLocalIPs();
+            addLog(`检测到本地IP地址: ${localIPs.join(', ')}`); // 显示实际IP
 
-            // 优先尝试 WebSocket 发现
             const ip = await discoverServer();
-            addLog(`通过 WebSocket 发现服务端: ${ip}`);
-            await verifyAPIAccess(ip);
+            addLog(`成功发现服务端: ${ip}`);
 
+            // 验证连接
+            await verifyAPIAccess(ip);
+            addLog(`服务端验证通过: ${ip}`);
+
+            // 更新状态
             setServerIP(ip);
             setStatus('connected');
             localStorage.setItem('serverIP', ip);
+
         } catch (error) {
             const message = error instanceof Error ? error.message : '未知错误';
-            addLog(`WebSocket 发现失败: ${message}`);
+            addLog(`发现失败: ${message}`);
 
-            // 回退到 API 发现（使用已获取的 localIPs）
-            try {
-                addLog('尝试 API 发现...');
-                const baseIP = localIPs[0]?.split('.').slice(0, 3).join('.') || '192.168.1';
-                const apiIP = await discoverViaAPI(baseIP);
-                addLog(`通过 API 发现: ${apiIP}`);
-                await verifyAPIAccess(apiIP);
-
-                setServerIP(apiIP);
-                setStatus('connected');
-                localStorage.setItem('serverIP', apiIP);
-            } catch (apiError) {
-                const apiMessage = apiError instanceof Error ? apiError.message : '未知错误';
-                addLog(`所有发现方式失败: ${apiMessage}`);
-                setStatus('error');
+            // 显示详细错误信息
+            if (message.includes('192.168.1.1')) {
+                addLog('检测到错误IP地址，请检查：\n1. 是否连接正确WiFi\n2. 服务端是否启动');
             }
+
+            setStatus('error');
         }
     }, [addLog, verifyAPIAccess]);
 
