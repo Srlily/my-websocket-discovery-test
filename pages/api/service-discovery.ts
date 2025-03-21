@@ -1,29 +1,60 @@
 // service-discovery.ts
+import {discoverServices} from "@/utils/network";
+
+
+// 新增IPv6验证
+const validateIP = (ip: string): boolean => {
+    const ipv4Regex = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+    const ipv6Regex = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
+    return (ipv4Regex.test(ip) && ip.split('.').every(num => num <= 255)) ||
+        ipv6Regex.test(ip);
+};
+
+// 新增局域网IP判断
+const isLocalIP = (ip: string): boolean => {
+    return ip.startsWith('192.168.') ||
+        ip.startsWith('10.') ||
+        ip.startsWith('172.');
+};
+
 export async function discoverWebSocketService(): Promise<string> {
     try {
-        // 优先尝试网关API
-        const gatewayResult = await fetchWithTimeout('http://localhost:37520/discover', 2000);
-        if (gatewayResult.ok) {
-            const { ws_url, ips } = await gatewayResult.json();
-            if (ws_url) return testWebSocket(ws_url);
-            else if (ips.length > 0) return testWebSocket(`ws://${ips[0]}:37521`);
+        // 1. 尝试Bonjour发现
+        const bonjourIps = await discoverServices();
+        for (const ip of bonjourIps) {
+            try {
+                const wsUrl = `ws://${ip}:37521`;
+                console.log(`Testing IP: ${ip}`);
+                if (await testWebSocket(wsUrl)) return wsUrl;
+            } catch (e) {
+                console.error(`IP ${ip} 连接失败: ${e.message}`);
+            }
         }
-    } catch {}
 
-    // 尝试Bonjour发现
-    try {
-        const bonjourResponse = await fetch('/api/discover'); // 调用前端的discover.ts
-        const { ips } = await bonjourResponse.json();
-        if (ips.length > 0) return testWebSocket(`ws://${ips[0]}:37521`);
-    } catch {}
+        // 2. 尝试SSDP
+        try {
+            const ssdpResult = await fetchSSDPDiscovery();
+            const wsUrl = `ws://${ssdpResult}:37521`;
+            if (await testWebSocket(wsUrl)) return wsUrl;
+        } catch {}
 
-    // 最后使用SSDP回退
-    try {
-        const ssdpResult = await fetchSSDPDiscovery();
-        return testWebSocket(ssdpResult);
-    } catch {}
+        // 3. 最后尝试网关API（动态替换localhost）
+        const gatewayUrl = `http://${localIP}:37520/discover`;
+        const gatewayResult = await fetchWithTimeout(gatewayUrl, 2000);
+        if (gatewayResult.ok) {
+            const { ips } = await gatewayResult.json();
+            for (const ip of ips) {
+                if (!isLocalIP(ip)) continue;
+                const wsUrl = `ws://${ip}:37521`;
+                if (await testWebSocket(wsUrl)) return wsUrl;
+            }
+        }
 
-    throw new Error('所有发现方式均失败');
+        throw new Error('所有发现方式均失败');
+    } catch (err) {
+        console.error("服务发现失败:", err);
+        throw err;
+    }
 }
 
 // 新增超时工具函数
@@ -56,20 +87,26 @@ async function fetchSSDPDiscovery(): Promise<string> {
     return ws_url;
 }
 
-async function testWebSocket(url: string): Promise<string> {
-    return new Promise((resolve, reject) => {
+async function testWebSocket(url: string): Promise<boolean> {
+    return new Promise((resolve) => {
         const ws = new WebSocket(url);
-        ws.onopen = () => {
+        const timeout = 5000; // 超时时间延长至5秒
+
+        const timer = setTimeout(() => {
             ws.close();
-            resolve(url);
+            resolve(false);
+        }, timeout);
+
+        ws.onopen = () => {
+            clearTimeout(timer);
+            ws.close();
+            resolve(true);
         };
-        ws.onerror = () => reject();
-        // 添加 void 操作符忽略 setTimeout 的返回值
-        void setTimeout(reject, 1000);
+
+        ws.onerror = () => {
+            clearTimeout(timer);
+            resolve(false);
+        };
     });
 }
 
-// 使用示例
-discoverWebSocketService()
-    .then(url => console.log('发现服务地址:', url))
-    .catch(() => console.warn('未找到可用服务'));
