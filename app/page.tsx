@@ -1,4 +1,3 @@
-// app/page.tsx
 'use client';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import WebSocketStatus from '@/components/WebSocketStatus';
@@ -31,7 +30,7 @@ export default function NetworkTester() {
     const detectLocalAccess = async () => {
       try {
         const socket = new WebSocket(`ws://${SERVER_IP}:37521`);
-        const timeout = setTimeout(() => socket.close(), 3000); // 3秒超时
+        const timeout = setTimeout(() => socket.close(), 3000);
 
         socket.onopen = () => {
           clearTimeout(timeout);
@@ -42,21 +41,17 @@ export default function NetworkTester() {
         socket.onerror = () => {
           clearTimeout(timeout);
           addLog('error', '自动检测失败，请手动输入服务IP');
-          setDiscoveredIp(null); // 强制显示输入框
+          setDiscoveredIp(null);
         };
 
         socket.onclose = () => {
           clearTimeout(timeout);
           addLog('error', '自动检测失败，请手动输入服务IP');
-          setDiscoveredIp(null); // 强制显示输入框
+          setDiscoveredIp(null);
         };
-      } catch (error: unknown) { // 这里添加类型注解
+      } catch (error: unknown) {
         const errorMessage =
-            error instanceof Error
-                ? error.message
-                : error !== null && error !== undefined
-                    ? String(error)
-                    : '未知错误';
+            error instanceof Error ? error.message : String(error) || '未知错误';
         addLog('error', `服务发现失败: ${errorMessage}`);
       }
     };
@@ -73,14 +68,10 @@ export default function NetworkTester() {
   useEffect(() => {
     if (!discoveredIp) return;
 
-    const reconnectTimer: NodeJS.Timeout | null = null;
+    let reconnectTimer: NodeJS.Timeout | null = null;
 
-    const connect = async () => {
-      if (socketRef.current) {
-        socketRef.current.close();
-        socketRef.current = null;
-      }
-
+    const connect = async () => {  // 移除 retryCount 参数
+      if (socketRef.current) socketRef.current.close();
       const newSocket = new WebSocket(wsUrl);
       socketRef.current = newSocket;
 
@@ -91,15 +82,15 @@ export default function NetworkTester() {
       };
 
       newSocket.onerror = (error: Event) => {
-        const errorMessage = (error as ErrorEvent).message || '未知错误';
-        addLog('error', `WebSocket连接错误: ${errorMessage}`);
-        setDiscoveredIp(null); // 强制显示输入框
+        const errMsg = (error as ErrorEvent).message || '未知错误';
+        addLog('error', `WebSocket连接错误: ${errMsg}`);
+        setDiscoveredIp(null);
       };
 
       newSocket.onclose = (event) => {
         if (event.code !== 1000) {
           addLog('error', `连接意外中断: ${event.reason}`);
-          setDiscoveredIp(null); // 强制显示输入框
+          setDiscoveredIp(null);
         } else {
           addLog('info', 'WebSocket连接已关闭');
           setConnectionStatus('disconnected');
@@ -112,11 +103,21 @@ export default function NetworkTester() {
       };
     };
 
+    // 自动重试逻辑
+    const startReconnect = () => {
+      reconnectTimer = setTimeout(() => {
+        if (!socketRef.current) connect();
+      }, 5000);
+    };
+
     connect();
+    startReconnect();
 
     return () => {
       socketRef.current?.close();
-      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
     };
   }, [discoveredIp, wsUrl]);
 

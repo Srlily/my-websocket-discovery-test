@@ -1,9 +1,15 @@
-// utils/network.ts
-// export const isValidIP = (ip: string) => {
-//     return /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(ip);
-// };
-
 export const discoverServices = async (): Promise<string[]> => {
-    const SERVER_IP = process.env.NEXT_PUBLIC_SERVER_IP || '127.0.0.1';
-    return [SERVER_IP]; // 直接返回环境变量中的服务端IP
+    try {
+        const bonjourIps = await fetch('/api/discover')
+            .then(res => res.json())
+            .then(data => data.ips);
+        if (bonjourIps.length > 0) return bonjourIps;
+
+        const gatewayResponse = await fetch('http://localhost:37520/discover');
+        const { ips } = await gatewayResponse.json();
+        return ips || [];
+    } catch (e) {  // 方案三：添加错误日志
+        console.error("发现服务失败:", e);
+        return [];
+    }
 };
