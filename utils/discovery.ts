@@ -9,7 +9,7 @@ export const API_PORT = 37520;
 const isBrowser = typeof window !== 'undefined';
 
 // 获取客户端本地 IP（安全版）
-const getClientLocalIPs = (): Promise<string[]> => {
+export const getClientLocalIPs = (): Promise<string[]> => {
     if (!isBrowser) return Promise.resolve([]);
 
     return new Promise((resolve) => {
@@ -159,25 +159,44 @@ export const discoverServer = async (): Promise<string> => {
 };
 
 // API 发现方案
-export const discoverViaAPI = async (): Promise<string> => {
+export const discoverViaAPI = async (baseIP: string): Promise<string> => {
     try {
-        const apiUrl = `${window.location.protocol}//${window.location.hostname}:${API_PORT}/backend/ip`;
-        const response = await fetch(apiUrl);
-        const data = await response.json();
+        // 常见局域网 IP 地址段
+        const commonIPs = [
+            `${baseIP}.1`,
+            `${baseIP}.100`,
+            `${baseIP}.254`,
+            `${baseIP}.50`,
+            `${baseIP}.101`
+        ];
 
-        if (!Array.isArray(data.ips)) {
-            throw new Error('无效的 API 响应格式');
-        }
-
-        for (const ip of data.ips) {
+        // 尝试所有常见 IP 地址
+        for (const ip of commonIPs) {
             try {
-                await checkWebSocket(ip);
-                return ip;
+                const apiUrl = `http://${ip}:${API_PORT}/backend/ip`;
+                const response = await fetch(apiUrl, {
+                    mode: 'cors',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+
+                const data = await response.json();
+
+                if (Array.isArray(data.ips)) {
+                    // 验证 IP 有效性
+                    for (const serverIP of data.ips) {
+                        try {
+                            await checkWebSocket(serverIP);
+                            return serverIP;
+                        } catch {
+                            continue;
+                        }
+                    }
+                }
             } catch {
                 continue;
             }
         }
-        throw new Error('API 返回的 IP 均无法连接');
+        throw new Error('无法通过 API 发现服务端');
     } catch (error) {
         throw new Error(
             error instanceof Error ? error.message : 'API 发现失败'

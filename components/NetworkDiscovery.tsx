@@ -4,7 +4,7 @@ import {
     useEffect,
     useCallback
 } from 'react';
-import { API_PORT, discoverServer, discoverViaAPI } from '@/utils/discovery';
+import {API_PORT, discoverServer, discoverViaAPI, getClientLocalIPs} from '@/utils/discovery';
 
 const NetworkDiscovery = () => {
     const [status, setStatus] = useState<'init' | 'scanning' | 'connected' | 'error'>('init');
@@ -38,10 +38,17 @@ const NetworkDiscovery = () => {
         setStatus('scanning');
         addLog('启动服务端发现流程...');
 
+        // 在 try 外部声明 localIPs
+        let localIPs: string[] = [];
+
         try {
-            // 尝试 WebSocket 发现
+            // 获取本地 IP 列表
+            localIPs = await getClientLocalIPs();
+            // const baseIP = localIPs[0]?.split('.').slice(0, 3).join('.') || '192.168.1';
+
+            // 优先尝试 WebSocket 发现
             const ip = await discoverServer();
-            addLog(`发现服务端: ${ip}`);
+            addLog(`通过 WebSocket 发现服务端: ${ip}`);
             await verifyAPIAccess(ip);
 
             setServerIP(ip);
@@ -51,10 +58,11 @@ const NetworkDiscovery = () => {
             const message = error instanceof Error ? error.message : '未知错误';
             addLog(`WebSocket 发现失败: ${message}`);
 
-            // 回退到 API 发现
+            // 回退到 API 发现（使用已获取的 localIPs）
             try {
                 addLog('尝试 API 发现...');
-                const apiIP = await discoverViaAPI();
+                const baseIP = localIPs[0]?.split('.').slice(0, 3).join('.') || '192.168.1';
+                const apiIP = await discoverViaAPI(baseIP);
                 addLog(`通过 API 发现: ${apiIP}`);
                 await verifyAPIAccess(apiIP);
 
